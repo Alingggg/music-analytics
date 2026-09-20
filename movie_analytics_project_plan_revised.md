@@ -186,15 +186,15 @@ Do not split multi-value fields, explode arrays, flatten nested content, replace
 
 Examples:
 
-- `raw_movielens_ratings`
-- `raw_movielens_tags`
-- `raw_movielens_movies`
-- `raw_movielens_links`
-- `raw_imdb_title_basics`
-- `raw_imdb_title_ratings`
-- `raw_imdb_title_crew`
-- `raw_imdb_title_principals`
-- `raw_imdb_name_basics`
+- `movielens_ratings`
+- `movielens_tags`
+- `movielens_movies`
+- `movielens_links`
+- `imdb_title_basics`
+- `imdb_title_ratings`
+- `imdb_title_crew`
+- `imdb_title_principals`
+- `imdb_name_basics`
 
 Recommended ingestion metadata:
 
@@ -207,8 +207,8 @@ Recommended ingestion metadata:
 Bronze datasets should be stored as Delta tables in a Bronze schema, for example:
 
 ```text
-movie_analytics.bronze.raw_movielens_ratings
-movie_analytics.bronze.raw_imdb_title_basics
+movie_analytics.bronze.movielens_ratings
+movie_analytics.bronze.imdb_title_basics
 ```
 
 ### Silver

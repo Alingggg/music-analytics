@@ -19,6 +19,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "databricks-connect~=18.0.0",
+    "ipykernel~=6.29.5",
 ]
 
 [tool.databricks.environment]
