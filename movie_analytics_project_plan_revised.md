@@ -2,7 +2,7 @@
 
 **Project type:** Data Engineering + Analytics portfolio project  
 **Primary datasets:** MovieLens 32M + IMDb Non-Commercial Datasets  
-**Version:** 2026-09-19
+**Version:** 2026-09-22
 
 ---
 
@@ -268,6 +268,11 @@ Suggested models:
 - `fct_movie_tag`
 - `fct_movie_person_credit`
 
+#### Bridges
+
+- `bridge_movie_genres`
+- `bridge_person_profession`
+
 #### Aggregates / marts
 
 - `mart_movie_performance`
@@ -277,6 +282,8 @@ Suggested models:
 - `mart_creator_performance`
 - `mart_collaborations`
 - `mart_release_cohorts`
+
+Gold table names use `snake_case`, matching the existing table convention. Column names retain the source-compatible convention already used by the datasets and Silver notebook: source fields keep names such as `movieId`, `userId`, `tconst`, `nconst`, `primaryTitle`, and `averageRating`; derived business fields use lower camel case; ingestion metadata remains underscore-prefixed.
 
 ---
 
@@ -288,19 +295,23 @@ Suggested models:
 
 Useful fields:
 
-- movie key;
-- MovieLens movie ID;
-- IMDb title ID;
-- title;
-- original title;
-- release year;
-- runtime;
-- title type;
-- adult flag;
-- MovieLens genres;
-- IMDb genres.
+- `movieId`;
+- `imdbId`;
+- `tconst`;
+- `tmdbId`;
+- `title`;
+- `primaryTitle`;
+- `originalTitle`;
+- `releaseYear`;
+- `movielensReleaseYear`;
+- `startYear`;
+- `endYear`;
+- `runtimeMinutes`;
+- `titleType`;
+- `isAdult`;
+- `isImdbLinked`.
 
-Keep both source-specific genre values initially rather than silently replacing one with the other.
+Keep both source-specific genre values initially rather than silently replacing one with the other. Store them in `bridge_movie_genres` with `movieId`, the genre value, and a source indicator that distinguishes MovieLens from IMDb.
 
 ### Rating fact grain
 
@@ -308,18 +319,38 @@ One row = one MovieLens user rating of one movie at one timestamp.
 
 Candidate fields:
 
-- user key;
-- movie key;
-- rating;
-- rating timestamp;
-- rating date;
-- release-to-rating age in days/years.
+- `userId`;
+- `movieId`;
+- `rating`;
+- `ratingTimestamp`;
+- `ratingDateKey`;
+- `movieAgeAtRatingYears`.
+
+Only calculate movie age at rating time in whole years. The current sources provide a release year rather than an exact release date, so a day-level lag would be falsely precise.
 
 ### Person-credit grain
 
 One row = one person credited on one title in one role/category.
 
 This avoids storing comma-separated director/cast IDs in analytical models.
+
+### Person-profession bridge grain
+
+`bridge_person_profession` should contain one row per IMDb person and profession, using `nconst` and `profession`. This preserves the multi-value `primaryProfession` source field without embedding comma-separated values in `dim_person`.
+
+### User dimension grain
+
+`dim_user` should contain one row per anonymized MovieLens user. Because MovieLens provides no user demographics, keep this dimension intentionally small.
+
+Candidate fields:
+
+- `userId`;
+- `firstRatingAt`;
+- `lastRatingAt`;
+- `firstTagAt`;
+- `lastTagAt`.
+
+Behavioral measures such as rating count, favorite genre, genre affinity, release-decade preference, and mainstream-versus-niche preference belong in `mart_user_preferences` rather than `dim_user`.
 
 ---
 
@@ -592,7 +623,7 @@ For IMDb refreshes:
 2. ingest it to Bronze with snapshot metadata;
 3. compare it with the currently modeled data;
 4. update affected Silver/Gold records;
-5. retain load timestamps and optionally historical snapshots.
+5. retain source snapshots in the Volume and Bronze for replay while keeping Gold on the selected current IMDb snapshot.
 
 ### Stage 9 — Orchestration
 
@@ -632,7 +663,7 @@ Recommended approach:
 - update mutable attributes such as IMDb rating and vote count;
 - preserve ingestion timestamps.
 
-A later stretch goal is to create a historical Delta table for IMDb rating and vote-count changes across snapshots.
+No separate Gold fact table for historical IMDb rating and vote-count snapshots is planned. The current Gold models should be refreshed from the selected IMDb snapshot.
 
 Because the source files remain in Volumes, an older snapshot can be replayed without downloading it again.
 
@@ -783,7 +814,6 @@ Only do these after the core project is finished.
 - user clustering;
 - recommendation prototype;
 - network graph of collaborations;
-- IMDb rating history via periodic snapshots;
 - Delta partitioning / clustering performance experiments;
 - compare Spark SQL versus PySpark implementations for selected transformations;
 - dbt implementation;
