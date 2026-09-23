@@ -2,7 +2,7 @@
 
 **Project type:** Data Engineering + Analytics portfolio project  
 **Primary datasets:** MovieLens 32M + IMDb Non-Commercial Datasets  
-**Version:** 2026-09-22
+**Version:** 2026-09-24
 
 ---
 
@@ -124,7 +124,7 @@ A practical stack for this project:
 - **dbt** — optional if the project later benefits from dbt-managed SQL models, tests, and documentation;
 - **Power BI / SQL dashboards / notebooks** — final analytics and visualization.
 
-The first version should not depend on Docker, ClickHouse, or Airflow.
+Docker, ClickHouse, and Airflow are outside the platform scope.
 
 The intended flow is:
 
@@ -241,7 +241,7 @@ Main tasks:
 
 ### Gold
 
-Build analysis-facing facts, dimensions, and marts as Delta tables.
+Build an analysis-facing movie dimension, facts, bridge, and marts as Delta tables.
 
 Example namespaces:
 
@@ -252,15 +252,11 @@ movie_analytics.gold.dim_movie
 movie_analytics.gold.fct_movie_rating
 ```
 
-Suggested models:
+Gold models:
 
-#### Dimensions
+#### Dimension
 
 - `dim_movie`
-- `dim_person`
-- `dim_genre`
-- `dim_date`
-- `dim_user`
 
 #### Facts
 
@@ -268,22 +264,24 @@ Suggested models:
 - `fct_movie_tag`
 - `fct_movie_person_credit`
 
-#### Bridges
+#### Bridge
 
 - `bridge_movie_genres`
-- `bridge_person_profession`
 
 #### Aggregates / marts
 
-- `mart_movie_performance`
-- `mart_movie_rating_distribution`
-- `mart_genre_trends`
-- `mart_user_preferences`
-- `mart_creator_performance`
-- `mart_collaborations`
-- `mart_release_cohorts`
+- `mart_movie_performance` — one row per `movieId`; title, release year, MovieLens rating count and average, IMDb rating and vote count, and tag count;
+- `mart_genre_trends` — one row per `genreSource`, `genre`, and `analysisReleaseYear`; movie count, rating count, and rating-count-weighted average rating;
+- `mart_user_preferences` — one row per `userId` with at least one rating; rating count, average rating given, and first and last rating times;
+- `mart_creator_performance` — one row per `nconst` and `creditRole`; name, credited and rated title counts, average title rating, and total rating count.
 
-Gold table names use `snake_case`, matching the existing table convention. Column names retain the source-compatible convention already used by the datasets and Silver notebook: source fields keep names such as `movieId`, `userId`, `tconst`, `nconst`, `primaryTitle`, and `averageRating`; derived business fields use lower camel case; ingestion metadata remains underscore-prefixed.
+The marts cover recurring movie, genre, user, and creator questions. Calculate rating distributions, collaboration networks, release-cohort longevity, and advanced scores in case-study queries. Persist additional marts when dashboards or reports repeatedly use those results.
+
+The Gold foundation contains one movie dimension, three facts, and the movie-genre bridge. The marts calculate user behavior from the rating fact, use date values stored in the facts, and read genre labels from the bridge. The creator mart obtains `primaryName` from Silver IMDb names. These sources provide the attributes needed for the planned analyses.
+
+Gold table names use `snake_case`. Columns follow the source-compatible convention: source fields use names such as `movieId`, `userId`, `tconst`, `nconst`, `primaryTitle`, and `averageRating`; derived business fields use lower camel case; ingestion metadata is underscore-prefixed.
+
+The Gold notebook selects source snapshots through `MOVIELENS_SNAPSHOT_DATE` and `IMDB_SNAPSHOT_DATE`. Both are set to `2026-09-20`. When a complete newer IMDb snapshot is available, set `IMDB_SNAPSHOT_DATE` to that date. Snapshot metadata in the Gold tables supports traceability and replay.
 
 ---
 
@@ -303,15 +301,17 @@ Useful fields:
 - `primaryTitle`;
 - `originalTitle`;
 - `releaseYear`;
-- `movielensReleaseYear`;
 - `startYear`;
 - `endYear`;
+- `analysisReleaseYear`;
 - `runtimeMinutes`;
 - `titleType`;
 - `isAdult`;
 - `isImdbLinked`.
 
-Keep both source-specific genre values initially rather than silently replacing one with the other. Store them in `bridge_movie_genres` with `movieId`, the genre value, and a source indicator that distinguishes MovieLens from IMDb.
+Silver stores the normalized `tconst` link. Gold derives numeric `imdbId` from that value.
+
+Store MovieLens and IMDb genre values in `bridge_movie_genres` with `movieId`, `genre`, and `genreSource`. The source indicator preserves differences between the two classification systems.
 
 ### Rating fact grain
 
@@ -322,35 +322,21 @@ Candidate fields:
 - `userId`;
 - `movieId`;
 - `rating`;
-- `ratingTimestamp`;
+- `ratedAt`;
 - `ratingDateKey`;
 - `movieAgeAtRatingYears`.
 
-Only calculate movie age at rating time in whole years. The current sources provide a release year rather than an exact release date, so a day-level lag would be falsely precise.
+Calculate movie age at rating time in whole years. The sources provide a release year, so a day-level lag would be falsely precise.
+
+Use the UTC `ratedAt` timestamp from Silver as part of the rating fact grain. The tag fact uses Silver `taggedAt`. Silver converts the original Unix seconds to timestamps and deduplicates on these timestamp grains. Gold stores those timestamps in its facts.
 
 ### Person-credit grain
 
-One row = one person credited on one title in one role/category.
+One row = one person credited on one MovieLens-linked title in one normalized `creditRole`. Reconcile IMDb principal `category` values with director/writer roles from title crew, and retain principal ordering, job, characters, and credit-source provenance.
 
 This avoids storing comma-separated director/cast IDs in analytical models.
 
-### Person-profession bridge grain
-
-`bridge_person_profession` should contain one row per IMDb person and profession, using `nconst` and `profession`. This preserves the multi-value `primaryProfession` source field without embedding comma-separated values in `dim_person`.
-
-### User dimension grain
-
-`dim_user` should contain one row per anonymized MovieLens user. Because MovieLens provides no user demographics, keep this dimension intentionally small.
-
-Candidate fields:
-
-- `userId`;
-- `firstRatingAt`;
-- `lastRatingAt`;
-- `firstTagAt`;
-- `lastTagAt`.
-
-Behavioral measures such as rating count, favorite genre, genre affinity, release-decade preference, and mainstream-versus-niche preference belong in `mart_user_preferences` rather than `dim_user`.
+The person-credit fact retains `nconst` and normalized `creditRole`. `mart_creator_performance` looks up `primaryName` from the selected Silver IMDb snapshot. MovieLens `userId` remains in the rating and tag facts and in `mart_user_preferences`; activity boundaries are not modeled as a separate user dimension.
 
 ---
 
@@ -382,55 +368,35 @@ Implement tests that demonstrate engineering discipline.
 - report unusually high/low rating counts;
 - detect duplicate titles with different IMDb IDs.
 
-Create a small `data_quality_summary` mart so these issues are visible rather than buried in logs.
+Run Gold quality checks before table writes, display their results in the Gold notebook, and fail the run when any required check fails. Quality results are displayed during the build.
 
 ---
 
 ## 9. Core Metrics
 
-Create reusable definitions instead of recalculating metrics in every dashboard.
+The Gold marts persist the following measures. Each mart also carries the selected source snapshot dates and Gold build timestamp.
 
-### Movie metrics
+### Movie performance
 
-- MovieLens average rating;
-- MovieLens rating count;
-- IMDb average rating;
-- IMDb vote count;
-- rating standard deviation;
-- weighted rating;
-- popularity percentile;
-- rating percentile by release year;
-- rating percentile within genre;
-- age of movie at rating time;
-- tag count;
-- unique rater count.
+`movieId`, `displayTitle`, `analysisReleaseYear`, `ratingCount`, `movielensAverageRating`, `imdbAverageRating`, `imdbNumVotes`, and `tagCount`. Keep MovieLens and IMDb ratings separate because they come from different audiences.
 
-### User metrics
+### Genre trends
 
-- total ratings;
-- average rating given;
-- rating variance;
-- favorite genre;
-- genre affinity score;
-- release-decade preference;
-- mainstream-vs-niche preference;
-- average age of movie watched/rated.
+`genreSource`, `genre`, `analysisReleaseYear`, `movieCount`, `ratingCount`, and `averageRating`. Calculate `averageRating` from movie averages weighted by their MovieLens rating counts. Keep `genreSource` because MovieLens and IMDb genre labels can differ.
 
-### Creator metrics
+### User preferences
 
-- credited-title count;
-- average title rating;
-- weighted average title rating;
-- average popularity;
-- genre diversity;
-- career span;
-- repeat-collaboration count.
+`userId`, `totalRatings`, `averageRatingGiven`, `firstRatingAt`, and `lastRatingAt`. These describe observed MovieLens rating activity.
+
+### Creator performance
+
+`nconst`, `primaryName`, `creditRole`, `creditedTitleCount`, `ratedTitleCount`, `averageTitleRating`, and `totalRatingCount`. Group by person and credit role so different roles are assessed separately. `averageTitleRating` is the simple average of rated titles' MovieLens averages.
 
 ---
 
 ## 10. Main Analytics Questions
 
-Do not try to answer all of these immediately. Build several independent case studies from the same warehouse.
+Build several independent case studies from the same warehouse. The measures below can be calculated from Gold facts and bridges for each analysis.
 
 ### Case Study A — Cult classics vs mainstream hits
 
@@ -526,7 +492,7 @@ Download:
 1. MovieLens 32M;
 2. selected IMDb bulk datasets.
 
-For the first version, manual download is acceptable.
+Source files can be downloaded manually.
 
 Record:
 
@@ -621,9 +587,10 @@ For IMDb refreshes:
 
 1. upload a newer IMDb snapshot to the Volume;
 2. ingest it to Bronze with snapshot metadata;
-3. compare it with the currently modeled data;
-4. update affected Silver/Gold records;
-5. retain source snapshots in the Volume and Bronze for replay while keeping Gold on the selected current IMDb snapshot.
+3. compare it with the selected prior snapshot to identify changed records;
+4. build the Silver models for the new snapshot and set `IMDB_SNAPSHOT_DATE` in the Gold notebook;
+5. validate and overwrite the Gold tables from the selected MovieLens and IMDb snapshots;
+6. retain source snapshots in the Volume and Bronze for replay.
 
 ### Stage 9 — Orchestration
 
@@ -636,9 +603,7 @@ Silver transformation
       ↓
 integration
       ↓
-Gold models
-      ↓
-quality checks
+Gold models, validation, and write
 ```
 
 ### Stage 10 — Analytics and presentation
@@ -660,10 +625,10 @@ Recommended approach:
 - preserve `_source_snapshot_date` in Bronze;
 - refresh manually or on a weekly/monthly schedule;
 - compare incoming records with the existing Silver/Gold state;
-- update mutable attributes such as IMDb rating and vote count;
+- build Silver for the selected IMDb snapshot and overwrite Gold after validation;
 - preserve ingestion timestamps.
 
-No separate Gold fact table for historical IMDb rating and vote-count snapshots is planned. The current Gold models should be refreshed from the selected IMDb snapshot.
+Gold represents the selected IMDb snapshot. Rebuild the Gold models from that snapshot when IMDb data is refreshed; retained source snapshots in Volumes and Bronze support replay.
 
 Because the source files remain in Volumes, an older snapshot can be replayed without downloading it again.
 
@@ -778,11 +743,9 @@ Deliverables:
 Deliverables:
 
 - rating fact;
-- user dimension;
-- person dimension;
 - movie-person credits;
 - movie aggregates;
-- creator/collaboration models.
+- creator aggregates.
 
 ### Milestone 7 — Incremental IMDb refresh
 
@@ -814,6 +777,9 @@ Only do these after the core project is finished.
 - user clustering;
 - recommendation prototype;
 - network graph of collaborations;
+- persisted movie-rating-distribution mart;
+- persisted collaboration mart;
+- persisted release-cohort mart;
 - Delta partitioning / clustering performance experiments;
 - compare Spark SQL versus PySpark implementations for selected transformations;
 - dbt implementation;
