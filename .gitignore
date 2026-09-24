@@ -2,3 +2,4 @@
 .databricks
 .uv-cache/
 __pycache__/
+dist/

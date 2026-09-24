@@ -617,14 +617,15 @@ The repository should focus on code and documentation. Large source datasets sho
 movie-analytics/
 ├── README.md
 ├── src/
-│   ├── run_pipeline.py
 │   └── music_analytics_pipeline/
 │       ├── bronze.py
 │       ├── silver.py
 │       ├── gold.py
 │       ├── config.py
 │       └── common.py
-└── databricks.yml
+├── databricks.yml
+└── resources/
+    └── job.yml
 ```
 
 Do not create empty folders just because they appear here. Add components when they are actually needed.

@@ -5,6 +5,16 @@
 bundle:
   name: music-analytics-pipeline
 
+include:
+  - resources/*.yml
+
+artifacts:
+  pipeline_wheel:
+    type: whl
+    path: .
+    build: uv build --wheel
+    dynamic_version: true
+
 targets:
   dev:
     mode: development

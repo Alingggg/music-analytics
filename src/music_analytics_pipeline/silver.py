@@ -454,3 +454,7 @@ def run(spark: SparkSession) -> None:
             table_name,
             snapshot_date,
         )
+
+
+def main() -> None:
+    run(SparkSession.builder.getOrCreate())

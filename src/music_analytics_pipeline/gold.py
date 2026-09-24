@@ -506,3 +506,7 @@ def run(spark: SparkSession) -> None:
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {GOLD_NAMESPACE}")
     for table_name, model_df in gold_models.items():
         write_gold_table(table_name, model_df)
+
+
+def main() -> None:
+    run(SparkSession.builder.getOrCreate())
