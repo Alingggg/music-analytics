@@ -157,23 +157,23 @@ Keep the downloaded source files in Volumes before loading them into tables.
 Example layout:
 
 ```text
-/Volumes/movie_analytics/raw/movielens/
-/Volumes/movie_analytics/raw/imdb/
+/Volumes/movie_analytics/raw/source_files/movielens/
+/Volumes/movie_analytics/raw/source_files/imdb/
 ```
 
 Possible files:
 
 ```text
-/Volumes/movie_analytics/raw/movielens/ratings.csv
-/Volumes/movie_analytics/raw/movielens/tags.csv
-/Volumes/movie_analytics/raw/movielens/movies.csv
-/Volumes/movie_analytics/raw/movielens/links.csv
+/Volumes/movie_analytics/raw/source_files/movielens/ratings.csv
+/Volumes/movie_analytics/raw/source_files/movielens/tags.csv
+/Volumes/movie_analytics/raw/source_files/movielens/movies.csv
+/Volumes/movie_analytics/raw/source_files/movielens/links.csv
 
-/Volumes/movie_analytics/raw/imdb/title.basics.tsv.gz
-/Volumes/movie_analytics/raw/imdb/title.ratings.tsv.gz
-/Volumes/movie_analytics/raw/imdb/title.crew.tsv.gz
-/Volumes/movie_analytics/raw/imdb/title.principals.tsv.gz
-/Volumes/movie_analytics/raw/imdb/name.basics.tsv.gz
+/Volumes/movie_analytics/raw/source_files/imdb/title.basics.tsv.gz
+/Volumes/movie_analytics/raw/source_files/imdb/title.ratings.tsv.gz
+/Volumes/movie_analytics/raw/source_files/imdb/title.crew.tsv.gz
+/Volumes/movie_analytics/raw/source_files/imdb/title.principals.tsv.gz
+/Volumes/movie_analytics/raw/source_files/imdb/name.basics.tsv.gz
 ```
 
 Volumes are the retained file layer. They are not the Bronze tables themselves.
@@ -217,15 +217,17 @@ Clean and normalize source data into stable types and relationships. Split multi
 
 Examples:
 
-- `stg_movies`
-- `stg_ratings`
-- `stg_tags`
-- `stg_imdb_titles`
-- `stg_people`
-- `stg_title_principals`
-- `stg_title_crew`
-- `bridge_movie_genres`
-- `bridge_movie_people`
+- `movielens_movie`
+- `movielens_movie_genre`
+- `movielens_link`
+- `movielens_rating`
+- `movielens_tag`
+- `imdb_name`
+- `imdb_title`
+- `imdb_title_genre`
+- `imdb_title_crew_member`
+- `imdb_title_principal`
+- `imdb_title_rating`
 
 Main tasks:
 
@@ -236,18 +238,17 @@ Main tasks:
 - convert Unix MovieLens timestamps to UTC timestamps;
 - parse years and runtimes;
 - deduplicate expected entity keys;
-- classify person roles;
-- validate MovieLens-to-IMDb links.
+- retain source IDs for the Gold join.
 
 ### Gold
 
-Build an analysis-facing movie dimension, facts, bridge, and marts as Delta tables.
+Join MovieLens and IMDb through the normalized `tconst`, then build an analysis-facing movie dimension, facts, bridge, and marts as Delta tables.
 
 Example namespaces:
 
 ```text
-movie_analytics.silver.stg_movies
-movie_analytics.silver.stg_ratings
+movie_analytics.silver.movielens_movie
+movie_analytics.silver.imdb_title
 movie_analytics.gold.dim_movie
 movie_analytics.gold.fct_movie_rating
 ```
@@ -485,7 +486,7 @@ Questions:
 
 ## 11. Pipeline Stages
 
-### Stage 1 — Dataset acquisition
+### Before the pipeline — source files
 
 Download:
 
@@ -502,20 +503,18 @@ Record:
 - download date;
 - checksum when available.
 
-### Stage 2 — Store source files in Volumes
-
-Store the downloaded files in Volumes.
+Store the downloaded files in a Volume.
 
 Example:
 
 ```text
-/Volumes/movie_analytics/raw/movielens/
-/Volumes/movie_analytics/raw/imdb/
+/Volumes/movie_analytics/raw/source_files/movielens/
+/Volumes/movie_analytics/raw/source_files/imdb/
 ```
 
 The Volume acts as the retained source-file layer so the pipeline can be replayed without redownloading the original files.
 
-### Stage 3 — Bronze ingestion
+### Stage 1 — Bronze ingestion
 
 Use PySpark or Spark SQL to load the files from the Volume into Bronze Delta tables. Preserve one row per source record, the source-aligned column structure, and the original field values. Leave multi-value and nested fields intact in this stage.
 
@@ -528,7 +527,7 @@ Requirements:
 - row-count validation;
 - retention and clear reporting of malformed records.
 
-### Stage 4 — Silver standardization
+### Stage 2 — Silver standardization
 
 Clean source-specific quirks, split multi-value or nested fields where needed, and produce stable Silver Delta tables.
 
@@ -542,19 +541,9 @@ Main work includes:
 - flattening nested content where required;
 - deduplicating expected entity keys.
 
-### Stage 5 — Entity integration
+### Stage 3 — Gold models
 
-Join MovieLens `imdbId` to IMDb `tconst`.
-
-Create an integration report containing:
-
-- linked rows;
-- unlinked rows;
-- duplicate links;
-- malformed IDs;
-- coverage percentage.
-
-### Stage 6 — Gold models
+Use the `tconst` produced from MovieLens links in Silver to join MovieLens movies to IMDb titles. The Gold notebook performs this join while building its models.
 
 Build Delta tables for:
 
@@ -565,9 +554,11 @@ Build Delta tables for:
 
 These should be the tables used by notebooks, Databricks SQL, or BI tools.
 
-### Stage 7 — Data quality
+Link coverage, duplicate links, and malformed IDs can be reported as Gold quality checks.
 
-Implement checks using Spark SQL, notebooks, or native expectations/testing patterns.
+### Data quality within the three stages
+
+Keep checks with the stage that produces the data. Bronze checks source ingestion, Silver checks cleaned tables, and Gold validates its models before writing them.
 
 Validate:
 
@@ -579,7 +570,7 @@ Validate:
 - source-to-Bronze reconciliation;
 - MovieLens-to-IMDb link coverage.
 
-### Stage 8 — Incremental refresh
+### Incremental refresh
 
 MovieLens remains a fixed snapshot.
 
@@ -592,7 +583,7 @@ For IMDb refreshes:
 5. validate and overwrite the Gold tables from the selected MovieLens and IMDb snapshots;
 6. retain source snapshots in the Volume and Bronze for replay.
 
-### Stage 9 — Orchestration
+### Orchestration
 
 After the notebook/jobs work independently, optionally create a Workflow to run:
 
@@ -601,12 +592,10 @@ Bronze ingestion
       ↓
 Silver transformation
       ↓
-integration
-      ↓
 Gold models, validation, and write
 ```
 
-### Stage 10 — Analytics and presentation
+### Analytics and presentation
 
 Build analyses against Gold tables rather than directly against the source files or Bronze tables.
 
@@ -642,11 +631,9 @@ The repository should focus on code and documentation. Large source datasets sho
 movie-analytics/
 ├── README.md
 ├── notebooks/
-│   ├── 01_bronze/
-│   ├── 02_silver/
-│   ├── 03_integration/
-│   ├── 04_gold/
-│   └── 05_quality/
+│   ├── 01_bronze/movie_bronze_ingestion.ipynb
+│   ├── 02_silver/movie_silver_models.ipynb
+│   └── 03_gold/movie_gold_models.ipynb
 ├── src/
 │   └── movie_analytics/
 │       ├── ingestion/
@@ -729,25 +716,20 @@ Deliverables:
 - parsed timestamps, years, runtimes, and genres;
 - quality checks.
 
-### Milestone 5 — Integrated movie model
+### Milestone 5 — Gold models and marts
 
 Deliverables:
 
 - MovieLens-to-IMDb join;
 - `dim_movie`;
-- integration coverage report;
-- genre bridge.
-
-### Milestone 6 — Audience and creator warehouse
-
-Deliverables:
-
+- genre bridge;
 - rating fact;
 - movie-person credits;
 - movie aggregates;
-- creator aggregates.
+- creator aggregates;
+- Gold validation checks.
 
-### Milestone 7 — Incremental IMDb refresh
+### Milestone 6 — Incremental IMDb refresh
 
 Deliverables:
 
@@ -757,7 +739,7 @@ Deliverables:
 - idempotent rerun behavior;
 - comparison of changed records.
 
-### Milestone 8 — Orchestration and presentation
+### Milestone 7 — Orchestration and presentation
 
 Deliverables:
 
@@ -815,12 +797,11 @@ The project is portfolio-ready when another person can understand and reproduce 
 2. uploading or placing them in the expected Databricks Volume paths;
 3. running Bronze ingestion;
 4. building Silver transformations;
-5. integrating MovieLens and IMDb through documented IDs;
-6. building Gold facts, dimensions, bridges, and marts;
-7. running the documented data-quality checks successfully;
-8. refreshing IMDb from a newer snapshot without corrupting or duplicating the warehouse;
-9. querying documented Gold tables;
-10. reproducing the main analyses from the README/notebooks.
+5. building Gold facts, dimensions, bridges, and marts from the MovieLens-to-IMDb link;
+6. running the documented data-quality checks successfully;
+7. refreshing IMDb from a newer snapshot without corrupting or duplicating the warehouse;
+8. querying documented Gold tables;
+9. reproducing the main analyses from the README/notebooks.
 
 The important engineering story is:
 
