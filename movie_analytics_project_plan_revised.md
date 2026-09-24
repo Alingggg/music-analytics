@@ -14,7 +14,7 @@ The project should demonstrate more than moving CSV files into a database. It sh
 
 - ingestion of multiple bulk datasets with different schemas and refresh behavior;
 - reliable ID-based integration between independent data sources;
-- data cleaning and quality validation;
+- data cleaning and repeatable transformations;
 - dimensional / analytical modeling;
 - incremental handling of a source that refreshes regularly;
 - efficient analytical querying;
@@ -111,12 +111,12 @@ Do not add TMDB, OMDb, or another API just to make the source list longer. The c
 
 A practical stack for this project:
 
-- **Databricks** — workspace for processing, storage, SQL, and notebooks;
+- **Databricks** — workspace for processing, storage, and SQL;
 - **Unity Catalog** — catalogs, schemas, managed tables, and governance;
 - **Volumes** — retained storage for downloaded source files before ingestion;
 - **Delta Lake** — Bronze, Silver, and Gold tables;
 - **PySpark / Spark SQL** — ingestion, cleaning, transformation, joins, and analytical modeling;
-- **Notebooks** — development, exploration, validation, and documentation;
+- **Python files** — Bronze, Silver, and Gold processing stages;
 - **Workflows / Jobs** — optional orchestration after the individual pipeline steps work correctly.
 
 ### Optional later tools
@@ -282,7 +282,7 @@ The Gold foundation contains one movie dimension, three facts, and the movie-gen
 
 Gold table names use `snake_case`. Columns follow the source-compatible convention: source fields use names such as `movieId`, `userId`, `tconst`, `nconst`, `primaryTitle`, and `averageRating`; derived business fields use lower camel case; ingestion metadata is underscore-prefixed.
 
-The three stage notebooks import `MOVIELENS_SNAPSHOT_DATE` and `IMDB_SNAPSHOT_DATE` from `notebooks/config.py`. Both are set to `2026-09-20`. When a complete newer IMDb snapshot is available, set `IMDB_SNAPSHOT_DATE` there. Bronze, Silver, and Gold then select the appropriate snapshot for each source. Snapshot metadata in the Gold tables supports traceability and replay.
+The three stage modules import `MOVIELENS_SNAPSHOT_DATE` and `IMDB_SNAPSHOT_DATE` from `src/music_analytics_pipeline/config.py`. Both are set to `2026-09-20`. When a complete newer IMDb snapshot is available, set `IMDB_SNAPSHOT_DATE` there. Bronze, Silver, and Gold then select the appropriate snapshot for each source. Snapshot metadata in the Gold tables supports traceability and replay.
 
 ---
 
@@ -341,9 +341,9 @@ The person-credit fact retains `nconst` and normalized `creditRole`. `mart_creat
 
 ---
 
-## 8. Data Quality Checks
+## 8. Optional Future Data Quality Checks
 
-Implement tests that demonstrate engineering discipline.
+The current Python stages do not run data-quality checks. The following checks can be added separately in a later phase.
 
 ### Structural tests
 
@@ -368,8 +368,6 @@ Implement tests that demonstrate engineering discipline.
 - report movies with conflicting source genres;
 - report unusually high/low rating counts;
 - detect duplicate titles with different IMDb IDs.
-
-Run Gold quality checks before table writes, display their results in the Gold notebook, and fail the run when any required check fails. Quality results are displayed during the build.
 
 ---
 
@@ -543,7 +541,7 @@ Main work includes:
 
 ### Stage 3 — Gold models
 
-Use the `tconst` produced from MovieLens links in Silver to join MovieLens movies to IMDb titles. The Gold notebook performs this join while building its models.
+Use the `tconst` produced from MovieLens links in Silver to join MovieLens movies to IMDb titles. The Gold Python stage performs this join while building its models.
 
 Build Delta tables for:
 
@@ -552,23 +550,11 @@ Build Delta tables for:
 - bridge tables;
 - aggregate marts.
 
-These should be the tables used by notebooks, Databricks SQL, or BI tools.
+These should be the tables used by Databricks SQL or BI tools.
 
-Link coverage, duplicate links, and malformed IDs can be reported as Gold quality checks.
+Link coverage, duplicate links, and malformed IDs can be examined in a separate future validation workflow.
 
-### Data quality within the three stages
-
-Keep checks with the stage that produces the data. Bronze checks source ingestion, Silver checks cleaned tables, and Gold validates its models before writing them.
-
-Validate:
-
-- row counts;
-- required IDs;
-- uniqueness where expected;
-- valid rating ranges;
-- referential relationships;
-- source-to-Bronze reconciliation;
-- MovieLens-to-IMDb link coverage.
+The current Bronze, Silver, and Gold scripts only transform and write data; they do not run these checks.
 
 ### Incremental refresh
 
@@ -579,20 +565,20 @@ For IMDb refreshes:
 1. upload a newer IMDb snapshot to the Volume;
 2. ingest it to Bronze with snapshot metadata;
 3. compare it with the selected prior snapshot to identify changed records;
-4. set `IMDB_SNAPSHOT_DATE` in `notebooks/config.py` and build the Silver models for the new snapshot;
-5. validate and overwrite the Gold tables from the selected MovieLens and IMDb snapshots;
+4. set `IMDB_SNAPSHOT_DATE` in `src/music_analytics_pipeline/config.py` and build the Silver models for the new snapshot;
+5. overwrite the Gold tables from the selected MovieLens and IMDb snapshots;
 6. retain source snapshots in the Volume and Bronze for replay.
 
 ### Orchestration
 
-After the notebook/jobs work independently, optionally create a Workflow to run:
+After the Python stages work independently, optionally create a Workflow to run:
 
 ```text
 Bronze ingestion
       ↓
 Silver transformation
       ↓
-Gold models, validation, and write
+Gold models and write
 ```
 
 ### Analytics and presentation
@@ -614,7 +600,7 @@ Recommended approach:
 - preserve `_source_snapshot_date` in Bronze;
 - refresh manually or on a weekly/monthly schedule;
 - compare incoming records with the existing Silver/Gold state;
-- build Silver for the selected IMDb snapshot and overwrite Gold after validation;
+- build Silver for the selected IMDb snapshot and overwrite Gold;
 - preserve ingestion timestamps.
 
 Gold represents the selected IMDb snapshot. Rebuild the Gold models from that snapshot when IMDb data is refreshed; retained source snapshots in Volumes and Bronze support replay.
@@ -630,25 +616,15 @@ The repository should focus on code and documentation. Large source datasets sho
 ```text
 movie-analytics/
 ├── README.md
-├── notebooks/
-│   ├── config.py
-│   ├── 01_bronze/movie_bronze_ingestion.ipynb
-│   ├── 02_silver/movie_silver_models.ipynb
-│   └── 03_gold/movie_gold_models.ipynb
 ├── src/
-│   └── movie_analytics/
-│       ├── ingestion/
-│       ├── transforms/
-│       ├── quality/
-│       └── config/
-├── sql/
-│   ├── silver/
-│   ├── gold/
-│   └── quality/
-├── analyses/
-├── dashboards/
-├── tests/
-└── docs/
+│   ├── run_pipeline.py
+│   └── music_analytics_pipeline/
+│       ├── bronze.py
+│       ├── silver.py
+│       ├── gold.py
+│       ├── config.py
+│       └── common.py
+└── databricks.yml
 ```
 
 Do not create empty folders just because they appear here. Add components when they are actually needed.
@@ -694,8 +670,7 @@ Deliverables:
 - Bronze Delta tables for ratings, tags, movies, and links;
 - ingestion metadata;
 - source-aligned ingestion schemas;
-- original source values and record grain preserved;
-- row-count validation.
+- original source values and record grain preserved.
 
 ### Milestone 3 — IMDb ingestion
 
@@ -714,8 +689,7 @@ Deliverables:
 - cleaned MovieLens models;
 - cleaned IMDb title/person models;
 - normalized identifiers;
-- parsed timestamps, years, runtimes, and genres;
-- quality checks.
+- parsed timestamps, years, runtimes, and genres.
 
 ### Milestone 5 — Gold models and marts
 
@@ -727,8 +701,7 @@ Deliverables:
 - rating fact;
 - movie-person credits;
 - movie aggregates;
-- creator aggregates;
-- Gold validation checks.
+- creator aggregates.
 
 ### Milestone 6 — Incremental IMDb refresh
 
@@ -784,7 +757,7 @@ Avoid:
 - adding external infrastructure such as ClickHouse when Databricks already covers the project needs;
 - introducing Kafka when all primary sources are batch files;
 - forcing streaming when the sources are downloadable snapshots;
-- scheduling a pipeline before the individual notebook/jobs are reliable.
+- scheduling a pipeline before the individual Python stages are reliable.
 
 The value should come from **clean integration, strong modeling, reproducibility, performance, and useful analysis**.
 
@@ -799,10 +772,9 @@ The project is portfolio-ready when another person can understand and reproduce 
 3. running Bronze ingestion;
 4. building Silver transformations;
 5. building Gold facts, dimensions, bridges, and marts from the MovieLens-to-IMDb link;
-6. running the documented data-quality checks successfully;
-7. refreshing IMDb from a newer snapshot without corrupting or duplicating the warehouse;
-8. querying documented Gold tables;
-9. reproducing the main analyses from the README/notebooks.
+6. refreshing IMDb from a newer snapshot without corrupting or duplicating the warehouse;
+7. querying documented Gold tables;
+8. reproducing the main analyses from the Python stages and README.
 
 The important engineering story is:
 

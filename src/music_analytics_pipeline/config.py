@@ -1,4 +1,4 @@
-"""Shared settings for the Bronze, Silver, and Gold Databricks notebooks."""
+"""Shared settings for the Bronze, Silver, and Gold Python stages."""
 
 from datetime import date
 

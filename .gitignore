@@ -1,3 +1,4 @@
 
 .databricks
 .uv-cache/
+__pycache__/
