@@ -282,7 +282,7 @@ The Gold foundation contains one movie dimension, three facts, and the movie-gen
 
 Gold table names use `snake_case`. Columns follow the source-compatible convention: source fields use names such as `movieId`, `userId`, `tconst`, `nconst`, `primaryTitle`, and `averageRating`; derived business fields use lower camel case; ingestion metadata is underscore-prefixed.
 
-The Gold notebook selects source snapshots through `MOVIELENS_SNAPSHOT_DATE` and `IMDB_SNAPSHOT_DATE`. Both are set to `2026-09-20`. When a complete newer IMDb snapshot is available, set `IMDB_SNAPSHOT_DATE` to that date. Snapshot metadata in the Gold tables supports traceability and replay.
+The three stage notebooks import `MOVIELENS_SNAPSHOT_DATE` and `IMDB_SNAPSHOT_DATE` from `notebooks/config.py`. Both are set to `2026-09-20`. When a complete newer IMDb snapshot is available, set `IMDB_SNAPSHOT_DATE` there. Bronze, Silver, and Gold then select the appropriate snapshot for each source. Snapshot metadata in the Gold tables supports traceability and replay.
 
 ---
 
@@ -579,7 +579,7 @@ For IMDb refreshes:
 1. upload a newer IMDb snapshot to the Volume;
 2. ingest it to Bronze with snapshot metadata;
 3. compare it with the selected prior snapshot to identify changed records;
-4. build the Silver models for the new snapshot and set `IMDB_SNAPSHOT_DATE` in the Gold notebook;
+4. set `IMDB_SNAPSHOT_DATE` in `notebooks/config.py` and build the Silver models for the new snapshot;
 5. validate and overwrite the Gold tables from the selected MovieLens and IMDb snapshots;
 6. retain source snapshots in the Volume and Bronze for replay.
 
@@ -631,6 +631,7 @@ The repository should focus on code and documentation. Large source datasets sho
 movie-analytics/
 ├── README.md
 ├── notebooks/
+│   ├── config.py
 │   ├── 01_bronze/movie_bronze_ingestion.ipynb
 │   ├── 02_silver/movie_silver_models.ipynb
 │   └── 03_gold/movie_gold_models.ipynb
