@@ -9,5 +9,3 @@ The Databricks job in [resources/job.yml](resources/job.yml) installs the projec
 The three entry points are defined in [pyproject.toml](pyproject.toml) and call [bronze.py](src/music_analytics_pipeline/bronze.py), [silver.py](src/music_analytics_pipeline/silver.py), and [gold.py](src/music_analytics_pipeline/gold.py). Run `databricks bundle deploy -t dev` to build and deploy the wheel, then `databricks bundle run -t dev movie_pipeline` to start the job. Shared configuration and helpers live in `src/music_analytics_pipeline/`.
 
 Set `MOVIELENS_SNAPSHOT_DATE` and `IMDB_SNAPSHOT_DATE` in [config.py](src/music_analytics_pipeline/config.py) before running the stages. An IMDb refresh can use a newer date while MovieLens stays on its original snapshot. The scripts do not include notebook previews or data-quality checks.
-
-See the [project plan](movie_analytics_project_plan_revised.md) for the data model and refresh workflow.
